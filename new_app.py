@@ -160,12 +160,13 @@ st.markdown("---")
 import pandas as pd
 import datetime
 import random
+import os
 from aip import AipImageClassify  # 百度AI的SDK
 
-# 百度AI配置（已配置好你的密钥）
-APP_ID = '122401445'
-API_KEY = 's0Ci5vaSBEYA1VT4Ez9jH5j6'
-SECRET_KEY = '9yqsGkNOXopZpsDNPKmauO7kaNn5p1nc'
+# 百度AI配置（从Streamlit Secrets读取）
+APP_ID = st.secrets.get("APP_ID", '122401445')
+API_KEY = st.secrets.get("API_KEY", 's0Ci5vaSBEYA1VT4Ez9jH5j6')
+SECRET_KEY = st.secrets.get("SECRET_KEY", '9yqsGkNOXopZpsDNPKmauO7kaNn5p1nc')
 
 # 初始化百度AI客户端
 client = AipImageClassify(APP_ID, API_KEY, SECRET_KEY)
