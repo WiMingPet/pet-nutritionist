@@ -1203,7 +1203,7 @@ with right:
                     total_meals = df['餐数'].sum()
                     st.metric("总记录餐数", f"{total_meals} 餐")
                 
-                # 达标率
+                                # 达标率
                达标天数 = len(df[df['总热量'] >= daily_cal * 0.9])
                达标率 = (达标天数 / len(df)) * 100
                
@@ -1215,8 +1215,6 @@ with right:
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
-        
-        st.markdown("</div>", unsafe_allow_html=True)
 
 # 底部版权
 st.markdown("---")
