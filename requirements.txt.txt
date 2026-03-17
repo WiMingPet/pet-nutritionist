@@ -1,5 +1,0 @@
-streamlit==1.55.0
-pandas==2.3.3
-baidu-aip==4.16.5
-requests==2.32.5
-pillow==12.1.1
