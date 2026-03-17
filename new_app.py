@@ -770,7 +770,7 @@ with right:
         
         st.markdown("</div>", unsafe_allow_html=True)
     
-    # ===== 标签页3：营养分析 =====
+       # ===== 标签页3：营养分析 =====
     with tab3:
         st.markdown("""
         <div style='background-color: white; border-radius: 15px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
@@ -804,34 +804,34 @@ with right:
                 """, unsafe_allow_html=True)
             
             # 获取营养建议
-recommendations = get_nutrition_recommendations(
-    total_cal, daily_cal, total_pro, pet_type, pet_age
-)
-
-# 显示营养建议卡片
-st.markdown("### 💡 今日营养建议")
-
-# 创建两列布局显示建议
-cols = st.columns(len(recommendations))
-for i, rec in enumerate(recommendations):
-    with cols[i]:
-        st.markdown(f"""
-        <div style='background-color: #F0F8FF; border-radius: 10px; padding: 1rem; text-align: center; height: 100%;'>
-            <div style='font-size: 2rem;'>{rec['icon']}</div>
-            <h4 style='color: #4ECDC4; margin: 0.5rem 0;'>{rec['类型']}</h4>
-            <p style='font-size: 0.9rem; margin: 0.3rem 0;'>{rec['建议']}</p>
-            <p style='font-size: 0.9rem; font-weight: bold; color: #FF6B6B; margin: 0.3rem 0;'>{rec['推荐补充剂']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-# 传统提示作为补充（放在下面）
-st.markdown("---")
-if total_cal < daily_cal * 0.7:
-    st.info("📉 热量摄入不足70%，建议加餐")
-elif total_cal > daily_cal * 1.1:
-    st.warning("📈 热量超标110%，注意控制")
-else:
-    st.success("📊 热量摄入在理想范围")
+            recommendations = get_nutrition_recommendations(
+                total_cal, daily_cal, total_pro, pet_type, pet_age, pet_weight
+            )
+            
+            # 显示营养建议卡片
+            st.markdown("### 💡 今日营养建议")
+            
+            # 创建两列布局显示建议
+            cols = st.columns(len(recommendations))
+            for i, rec in enumerate(recommendations):
+                with cols[i]:
+                    st.markdown(f"""
+                    <div style='background-color: #F0F8FF; border-radius: 10px; padding: 1rem; text-align: center; height: 100%;'>
+                        <div style='font-size: 2rem;'>{rec['icon']}</div>
+                        <h4 style='color: #4ECDC4; margin: 0.5rem 0;'>{rec['类型']}</h4>
+                        <p style='font-size: 0.9rem; margin: 0.3rem 0;'>{rec['建议']}</p>
+                        <p style='font-size: 0.9rem; font-weight: bold; color: #FF6B6B; margin: 0.3rem 0;'>{rec['推荐补充剂']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # 传统提示作为补充
+            st.markdown("---")
+            if total_cal < daily_cal * 0.7:
+                st.info("📉 热量摄入不足70%，建议加餐")
+            elif total_cal > daily_cal * 1.1:
+                st.warning("📈 热量超标110%，注意控制")
+            else:
+                st.success("📊 热量摄入在理想范围")
             
             # 详细记录
             st.markdown("---")
@@ -850,11 +850,3 @@ else:
                 st.rerun()
         
         st.markdown("</div>", unsafe_allow_html=True)
-
-# 底部版权
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: #6C757D; font-size: 0.9rem; padding: 1rem;'>
-    🐾 宠物AI营养师 · 让毛孩子吃得健康 · 版本 2.0
-</div>
-""", unsafe_allow_html=True)
