@@ -1,4 +1,11 @@
 import streamlit as st
+import pandas as pd
+import datetime
+import random
+import os
+import sqlite3
+from aip import AipImageClassify  # 百度AI的SDK
+
 # ========== 页面美化设置 ==========
 st.set_page_config(
     page_title="宠物AI营养师", 
@@ -38,12 +45,8 @@ st.markdown("""
     }
     
     /* 卡片样式 */
-    .css-1r6slb0 {
-        background-color: white;
-        border-radius: 10px;
-        padding: 1.5rem;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        margin-bottom: 1rem;
+    .stApp [data-testid="stVerticalBlock"] {
+        background-color: transparent;
     }
     
     /* 按钮样式 */
@@ -103,47 +106,8 @@ st.markdown("""
     }
     
     /* 成功消息样式 */
-    .stSuccess {
-        background-color: #D4EDDA;
-        color: #155724;
+    .stAlert {
         border-radius: 10px;
-        border-left: 4px solid #28A745;
-    }
-    
-    /* 信息消息样式 */
-    .stInfo {
-        background-color: #D1ECF1;
-        color: #0C5460;
-        border-radius: 10px;
-        border-left: 4px solid #17A2B8;
-    }
-    
-    /* 警告消息样式 */
-    .stWarning {
-        background-color: #FFF3CD;
-        color: #856404;
-        border-radius: 10px;
-        border-left: 4px solid #FFC107;
-    }
-    
-    /* 指标卡片样式 */
-    .stMetric {
-        background-color: white;
-        border-radius: 10px;
-        padding: 1rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        text-align: center;
-    }
-    
-    .stMetric label {
-        color: #6C757D;
-        font-size: 0.9rem;
-    }
-    
-    .stMetric .css-1wivap2 {
-        color: #4ECDC4;
-        font-size: 2rem;
-        font-weight: 700;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -157,13 +121,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("---")
-import pandas as pd
-import datetime
-import random
-import os
-from aip import AipImageClassify  # 百度AI的SDK
 
-# 百度AI配置（从Streamlit Secrets读取）
+# ========== 百度AI配置 ==========
+# 从Streamlit Secrets读取密钥
 APP_ID = st.secrets.get("APP_ID", '122401445')
 API_KEY = st.secrets.get("API_KEY", 's0Ci5vaSBEYA1VT4Ez9jH5j6')
 SECRET_KEY = st.secrets.get("SECRET_KEY", '9yqsGkNOXopZpsDNPKmauO7kaNn5p1nc')
@@ -171,18 +131,86 @@ SECRET_KEY = st.secrets.get("SECRET_KEY", '9yqsGkNOXopZpsDNPKmauO7kaNn5p1nc')
 # 初始化百度AI客户端
 client_bd = AipImageClassify(APP_ID, API_KEY, SECRET_KEY)
 
-# 页面设置
-st.set_page_config(
-    page_title="宠物AI营养师", 
-    page_icon="🐱",
-    layout="wide"
-)
+# ========== 本地数据库操作 ==========
+DB_FILE = "pet_records.db"  # 数据库文件名
 
-# 标题
-st.title("🐱 宠物AI营养师")
-st.markdown("---")
+def init_database():
+    """初始化数据库，创建表（如果不存在）"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS diet_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            pet_name TEXT NOT NULL,
+            food_name TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            calories INTEGER NOT NULL,
+            protein REAL NOT NULL,
+            meal_time TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
-# 初始化历史记录
+def save_record_to_db(record):
+    """保存记录到本地SQLite数据库"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO diet_records (pet_name, food_name, amount, calories, protein, meal_time)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            record['pet_name'],
+            record['food_name'],
+            record['amount'],
+            record['calories'],
+            record['protein'],
+            record['meal_time']
+        ))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"保存到数据库失败：{str(e)}")
+        return False
+
+def load_records_from_db(pet_name):
+    """从本地数据库加载今天的记录"""
+    try:
+        # 获取今天的日期
+        today = datetime.datetime.now().date()
+        
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT strftime('%H:%M', created_at), food_name, calories, protein
+            FROM diet_records
+            WHERE pet_name = ? AND date(created_at) = date(?)
+            ORDER BY created_at
+        ''', (pet_name, today.isoformat()))
+        rows = cursor.fetchall()
+        conn.close()
+        
+        # 转换成字典列表
+        records = []
+        for row in rows:
+            records.append({
+                '时间': row[0],
+                '食物': row[1],
+                '热量': row[2],
+                '蛋白质': row[3]
+            })
+        return records
+    except Exception as e:
+        st.error(f"从数据库加载失败：{str(e)}")
+        return []
+
+# 初始化数据库
+init_database()
+
+# 初始化会话状态
 if 'history' not in st.session_state:
     st.session_state.history = []
 
@@ -204,16 +232,13 @@ food_db = load_food_database()
 left, right = st.columns([1, 2])
 
 # ===== 左边：宠物档案 =====
-# ===== 左边：宠物档案 =====
 with left:
-    # 宠物档案卡片
     st.markdown("""
     <div style='background-color: white; border-radius: 15px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 1rem;'>
         <h3 style='color: #FF6B6B; margin-top: 0;'>📋 宠物档案</h3>
     </div>
     """, unsafe_allow_html=True)
     
-    # 宠物基本信息卡片
     st.markdown("""
     <div style='background-color: white; border-radius: 15px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 1rem;'>
     """, unsafe_allow_html=True)
@@ -269,9 +294,9 @@ with left:
                 st.rerun()
             else:
                 st.info("📭 暂无今日记录")
+
 # ===== 右边：饮食记录 =====
 with right:
-    # 今日饮食标题
     st.markdown("""
     <div style='background-color: white; border-radius: 15px; padding: 1rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 1rem;'>
         <h3 style='color: #FF6B6B; margin: 0;'>🍖 今日饮食</h3>
@@ -290,7 +315,6 @@ with right:
         pic = st.file_uploader("选择图片", type=["jpg", "png", "jpeg"], help="支持jpg、png、jpeg格式")
         
         if pic:
-            # 图片预览
             st.image(pic, width=300, caption="预览")
             
             with st.spinner("🔍 百度AI正在识别中..."):
