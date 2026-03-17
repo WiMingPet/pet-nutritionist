@@ -4,6 +4,8 @@ import datetime
 import random
 import os
 import sqlite3
+import plotly.express as px
+import plotly.graph_objects as go
 from aip import AipImageClassify  # 百度AI的SDK
 
 # ========== 页面美化设置 ==========
@@ -138,31 +140,105 @@ def init_database():
     """初始化数据库，创建表（如果不存在）"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
+    # 创建宠物表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pet_name TEXT NOT NULL,
+            pet_type TEXT NOT NULL,
+            pet_gender TEXT,
+            birth_date TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # 创建饮食记录表（增加pet_id字段）
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS diet_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pet_id INTEGER NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            pet_name TEXT NOT NULL,
             food_name TEXT NOT NULL,
             amount INTEGER NOT NULL,
             calories INTEGER NOT NULL,
             protein REAL NOT NULL,
-            meal_time TEXT
+            meal_time TEXT,
+            FOREIGN KEY (pet_id) REFERENCES pets (id)
         )
     ''')
+    
     conn.commit()
     conn.close()
 
-def save_record_to_db(record):
-    """保存记录到本地SQLite数据库"""
+# 初始化数据库
+init_database()
+
+# 初始化会话状态
+if 'history' not in st.session_state:
+    st.session_state.history = []
+
+# ========== 宠物管理函数 ==========
+def add_pet(pet_name, pet_type, pet_gender, birth_date):
+    """添加新宠物到数据库"""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO diet_records (pet_name, food_name, amount, calories, protein, meal_time)
+            INSERT INTO pets (pet_name, pet_type, pet_gender, birth_date)
+            VALUES (?, ?, ?, ?)
+        ''', (pet_name, pet_type, pet_gender, birth_date))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"添加宠物失败：{str(e)}")
+        return False
+
+def get_all_pets():
+    """获取所有宠物列表"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, pet_name, pet_type FROM pets ORDER BY id')
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+    except Exception as e:
+        st.error(f"获取宠物列表失败：{str(e)}")
+        return []
+
+def get_pet_info(pet_id):
+    """获取指定宠物信息"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM pets WHERE id = ?', (pet_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return {
+                'id': row[0],
+                'pet_name': row[1],
+                'pet_type': row[2],
+                'pet_gender': row[3],
+                'birth_date': row[4]
+            }
+        return None
+    except Exception as e:
+        st.error(f"获取宠物信息失败：{str(e)}")
+        return None
+
+def save_record_to_db(record):
+    """保存记录到本地SQLite数据库（新版本）"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO diet_records (pet_id, food_name, amount, calories, protein, meal_time)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (
-            record['pet_name'],
+            record['pet_id'],
             record['food_name'],
             record['amount'],
             record['calories'],
@@ -176,8 +252,8 @@ def save_record_to_db(record):
         st.error(f"保存到数据库失败：{str(e)}")
         return False
 
-def load_records_from_db(pet_name):
-    """从本地数据库加载今天的记录"""
+def load_records_from_db(pet_id):
+    """从本地数据库加载指定宠物的今天记录"""
     try:
         # 获取今天的日期
         today = datetime.datetime.now().date()
@@ -187,9 +263,9 @@ def load_records_from_db(pet_name):
         cursor.execute('''
             SELECT strftime('%H:%M', created_at), food_name, calories, protein
             FROM diet_records
-            WHERE pet_name = ? AND date(created_at) = date(?)
+            WHERE pet_id = ? AND date(created_at) = date(?)
             ORDER BY created_at
-        ''', (pet_name, today.isoformat()))
+        ''', (pet_id, today.isoformat()))
         rows = cursor.fetchall()
         conn.close()
         
@@ -207,15 +283,39 @@ def load_records_from_db(pet_name):
         st.error(f"从数据库加载失败：{str(e)}")
         return []
 
-# 初始化数据库
-init_database()
+def load_history_records(pet_id, days=30):
+    """加载指定宠物的历史记录（用于图表）"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT date(created_at) as record_date, 
+                   SUM(calories) as total_calories,
+                   SUM(protein) as total_protein,
+                   COUNT(*) as meal_count
+            FROM diet_records
+            WHERE pet_id = ? AND created_at >= date('now', ?)
+            GROUP BY date(created_at)
+            ORDER BY record_date
+        ''', (pet_id, f'-{days} days'))
+        rows = cursor.fetchall()
+        conn.close()
+        
+        # 转换成字典列表
+        records = []
+        for row in rows:
+            records.append({
+                '日期': row[0],
+                '总热量': row[1] or 0,
+                '总蛋白质': row[2] or 0,
+                '餐数': row[3] or 0
+            })
+        return records
+    except Exception as e:
+        st.error(f"加载历史记录失败：{str(e)}")
+        return []
 
-# 初始化会话状态
-if 'history' not in st.session_state:
-    st.session_state.history = []
-
-# 食物数据库
-# 食物数据库（扩展版50+种）
+# ========== 食物数据库（扩展版50+种）==========
 @st.cache_data
 def load_food_database():
     data = {
@@ -475,8 +575,9 @@ def load_food_database():
     return pd.DataFrame(data)
 
 food_db = load_food_database()
+
 # ========== 营养建议函数 ==========
-def get_nutrition_recommendations(total_cal, daily_cal, total_pro, pet_type, pet_age, health_issues=None):
+def get_nutrition_recommendations(total_cal, daily_cal, total_pro, pet_type, pet_age, pet_weight):
     """根据营养缺口推荐补充剂"""
     recommendations = []
     
@@ -507,6 +608,13 @@ def get_nutrition_recommendations(total_cal, daily_cal, total_pro, pet_type, pet
             '推荐补充剂': '鸡胸肉、鱼肉、蛋白粉',
             'icon': '🥩'
         })
+    elif pro_gap < -5:
+        recommendations.append({
+            '类型': '蛋白质超标',
+            '建议': '适当减少高蛋白食物',
+            '推荐补充剂': '多喝水帮助代谢',
+            'icon': '⚠️'
+        })
     
     # 根据年龄推荐
     if pet_age < 1:
@@ -533,13 +641,20 @@ def get_nutrition_recommendations(total_cal, daily_cal, total_pro, pet_type, pet
             'icon': '🐱'
         })
     else:  # 狗
-        # 根据体型推荐（需要传入体重参数）
+        # 根据体型推荐
         if pet_weight > 25:
             recommendations.append({
                 '类型': '大型犬保健',
                 '建议': '关注关节健康',
                 '推荐补充剂': '软骨素、葡萄糖胺',
                 'icon': '🦴'
+            })
+        elif pet_weight < 5:
+            recommendations.append({
+                '类型': '小型犬保健',
+                '建议': '注意牙齿和心脏健康',
+                '推荐补充剂': '辅酶Q10、洁齿骨',
+                'icon': '🐕'
             })
     
     # 如果没有任何推荐，给个默认的
@@ -552,45 +667,11 @@ def get_nutrition_recommendations(total_cal, daily_cal, total_pro, pet_type, pet
         })
     
     return recommendations
-# 左右布局
-left, right = st.columns([1, 2])
 
-# ===== 左边：宠物档案 =====
-with left:
-    st.markdown("""
-    <div style='background-color: white; border-radius: 15px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 1rem;'>
-        <h3 style='color: #FF6B6B; margin-top: 0;'>📋 宠物档案</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div style='background-color: white; border-radius: 15px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 1rem;'>
-    """, unsafe_allow_html=True)
-    
-    pet_name = st.text_input("🐾 名字", "旺财", help="输入你家宝贝的名字")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        pet_type = st.selectbox("🐱 类型", ["猫", "狗"], help="选择宠物类型")
-    with col2:
-        pet_gender = st.selectbox("⚥ 性别", ["男生", "女生"], help="选择宠物性别")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        pet_age = st.number_input("📅 年龄", 0.0, 30.0, 3.0, step=0.5, help="单位：岁")
-    with col2:
-        pet_weight = st.number_input("⚖️ 体重", 0.1, 100.0, 5.0, step=0.1, help="单位：公斤")
-    
-    activity = st.select_slider(
-        "🏃 活动量",
-        options=["很少", "一般", "活泼", "很好动"],
-        value="一般",
-        help="选择宠物的日常活动量"
-    )
-    
-    st.markdown("</div>", unsafe_allow_html=True)
-    
-    # 计算热量
+# ========== 饮食计划推荐 ==========
+def generate_meal_plan(pet_type, pet_weight, pet_age, activity, preferences=None):
+    """生成每日饮食计划推荐"""
+    # 计算每日热量需求
     if pet_type == "猫":
         base = pet_weight * 70
     else:
@@ -599,25 +680,195 @@ with left:
     act_factor = {"很少": 0.8, "一般": 1.0, "活泼": 1.2, "很好动": 1.4}
     daily_cal = round(base * act_factor[activity])
     
-    # 今日目标卡片
-    st.markdown(f"""
-    <div style='background: linear-gradient(135deg, #4ECDC4 0%, #45B7D1 100%); border-radius: 15px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 1rem; text-align: center;'>
-        <h3 style='color: white; margin-top: 0; margin-bottom: 0.5rem;'>📊 今日目标</h3>
-        <div style='font-size: 3rem; font-weight: 700; color: white; line-height: 1.2;'>{daily_cal}</div>
-        <div style='font-size: 1rem; color: rgba(255,255,255,0.9);'>千卡</div>
-    </div>
+    # 根据年龄调整
+    if pet_age < 1:
+        # 幼宠需要多餐
+        meal_count = 4
+        meal_distribution = [0.25, 0.25, 0.25, 0.25]  # 四餐均分
+    elif pet_age > 7:
+        # 老年宠少食多餐
+        meal_count = 3
+        meal_distribution = [0.3, 0.4, 0.3]  # 早中晚
+    else:
+        # 成年宠两餐
+        meal_count = 2
+        meal_distribution = [0.4, 0.6]  # 早晚
+    
+    # 推荐食物
+    if pet_type == "猫":
+        food_recommendations = {
+            '主食': '猫粮（干）',
+            '肉类': '鸡胸肉、三文鱼',
+            '补充剂': '牛磺酸、鱼油'
+        }
+    else:
+        food_recommendations = {
+            '主食': '狗粮（干）',
+            '肉类': '鸡胸肉、牛肉',
+            '补充剂': '软骨素（大型犬）、益生菌'
+        }
+    
+    # 生成计划
+    plan = {
+        '每日热量': daily_cal,
+        '建议餐数': meal_count,
+        '餐次分布': meal_distribution,
+        '食物推荐': food_recommendations,
+        '说明': []
+    }
+    
+    # 添加说明
+    if pet_age < 1:
+        plan['说明'].append("🐾 幼宠需要少食多餐，每天4餐有助于消化吸收")
+    elif pet_age > 7:
+        plan['说明'].append("👴 老年宠物建议增加关节保健品，如软骨素")
+    
+    if pet_type == "猫":
+        plan['说明'].append("🐱 猫咪需要牛磺酸，可添加专门补充剂")
+    else:
+        if pet_weight > 25:
+            plan['说明'].append("🦴 大型犬注意关节保护，建议添加软骨素")
+    
+    return plan
+
+# 左右布局
+left, right = st.columns([1, 2])
+
+# ===== 左边：宠物档案 =====
+with left:
+    # 宠物选择器
+    st.markdown("""
+    <div style='background-color: white; border-radius: 15px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 1rem;'>
+        <h3 style='color: #FF6B6B; margin-top: 0; margin-bottom: 1rem;'>🐾 选择宠物</h3>
     """, unsafe_allow_html=True)
     
-    # 加载记录按钮
-    if st.button("📥 加载今日记录", use_container_width=True):
-        with st.spinner("加载中..."):
-            records = load_records_from_db(pet_name)
-            if records:
-                st.session_state.history = records
-                st.success(f"✅ 已加载 {len(records)} 条记录")
-                st.rerun()
+    # 获取所有宠物
+    pets = get_all_pets()
+    pet_options = [f"{p[1]} ({p[2]})" for p in pets]
+    pet_ids = [p[0] for p in pets]
+    
+    selected_pet_id = None
+    pet_name = "旺财"
+    pet_type = "猫"
+    pet_age = 3.0
+    pet_weight = 5.0
+    
+    if len(pets) == 0:
+        st.info("还没有宠物，请先添加")
+    else:
+        # 宠物选择下拉框
+        selected_index = st.selectbox(
+            "选择宠物",
+            range(len(pet_options)),
+            format_func=lambda x: pet_options[x],
+            key="pet_selector"
+        )
+        selected_pet_id = pet_ids[selected_index]
+        
+        # 获取选中宠物的信息
+        pet_info = get_pet_info(selected_pet_id)
+        if pet_info:
+            pet_name = pet_info['pet_name']
+            pet_type = pet_info['pet_type']
+            # 计算年龄（根据出生日期）
+            if pet_info['birth_date']:
+                birth = datetime.datetime.strptime(pet_info['birth_date'], '%Y-%m-%d').date()
+                today = datetime.datetime.now().date()
+                pet_age = (today - birth).days / 365
             else:
-                st.info("📭 暂无今日记录")
+                pet_age = 3.0
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # 添加新宠物按钮（在折叠框中）
+    with st.expander("➕ 添加新宠物"):
+        new_name = st.text_input("宠物名字", key="new_pet_name")
+        new_type = st.selectbox("类型", ["猫", "狗"], key="new_pet_type")
+        new_gender = st.selectbox("性别", ["男生", "女生"], key="new_pet_gender")
+        new_birth = st.date_input("出生日期", datetime.date(2023, 1, 1), key="new_pet_birth")
+        
+        if st.button("添加宠物", use_container_width=True):
+            if add_pet(new_name, new_type, new_gender, new_birth.strftime('%Y-%m-%d')):
+                st.success(f"✅ 添加成功！")
+                st.rerun()
+    
+    if selected_pet_id:
+        st.markdown("""
+        <div style='background-color: white; border-radius: 15px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 1rem;'>
+        """, unsafe_allow_html=True)
+        
+        # 宠物信息输入
+        pet_name = st.text_input("🐾 名字", pet_name, key="pet_name_input")
+        col1, col2 = st.columns(2)
+        with col1:
+            pet_type = st.selectbox("🐱 类型", ["猫", "狗"], index=0 if pet_type=='猫' else 1, key="pet_type_select")
+        with col2:
+            pet_gender = st.selectbox("⚥ 性别", ["男生", "女生"], key="pet_gender_select")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            pet_age = st.number_input("📅 年龄", 0.0, 30.0, float(pet_age), step=0.5, key="pet_age_input")
+        with col2:
+            pet_weight = st.number_input("⚖️ 体重", 0.1, 100.0, pet_weight, step=0.1, key="pet_weight_input")
+        
+        activity = st.select_slider(
+            "🏃 活动量",
+            options=["很少", "一般", "活泼", "很好动"],
+            value="一般",
+            key="activity_slider"
+        )
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        # 计算热量
+        if pet_type == "猫":
+            base = pet_weight * 70
+        else:
+            base = pet_weight * 100
+        
+        act_factor = {"很少": 0.8, "一般": 1.0, "活泼": 1.2, "很好动": 1.4}
+        daily_cal = round(base * act_factor[activity])
+        
+        # 今日目标卡片
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #4ECDC4 0%, #45B7D1 100%); border-radius: 15px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 1rem; text-align: center;'>
+            <h3 style='color: white; margin-top: 0; margin-bottom: 0.5rem;'>📊 今日目标</h3>
+            <div style='font-size: 3rem; font-weight: 700; color: white; line-height: 1.2;'>{daily_cal}</div>
+            <div style='font-size: 1rem; color: rgba(255,255,255,0.9);'>千卡</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 饮食计划按钮（折叠框）
+        with st.expander("📅 查看今日饮食计划"):
+            plan = generate_meal_plan(pet_type, pet_weight, pet_age, activity)
+            
+            st.markdown(f"""
+            <div style='background-color: #F9F9F9; border-radius: 10px; padding: 1rem;'>
+                <p><strong>📊 今日推荐</strong></p>
+                <p>🔥 总热量：{plan['每日热量']} kcal</p>
+                <p>🍽️ 建议餐数：{plan['建议餐数']} 餐</p>
+                <p><strong>🥩 推荐食物</strong></p>
+                <p>主食：{plan['食物推荐']['主食']}</p>
+                <p>肉类：{plan['食物推荐']['肉类']}</p>
+                <p>补充剂：{plan['食物推荐']['补充剂']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            for tip in plan['说明']:
+                st.info(tip)
+        
+        # 加载记录按钮
+        if st.button("📥 加载今日记录", use_container_width=True):
+            with st.spinner("加载中..."):
+                records = load_records_from_db(selected_pet_id)
+                if records:
+                    st.session_state.history = records
+                    st.success(f"✅ 已加载 {len(records)} 条记录")
+                    st.rerun()
+                else:
+                    st.info("📭 暂无今日记录")
+    else:
+        st.info("👆 请先添加宠物")
 
 # ===== 右边：饮食记录 =====
 with right:
@@ -627,7 +878,7 @@ with right:
     </div>
     """, unsafe_allow_html=True)
     
-    tab1, tab2, tab3 = st.tabs(["📸 拍照识别", "📝 手动输入", "📊 营养分析"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📸 拍照识别", "📝 手动输入", "📊 今日分析", "📈 历史趋势"])
     
     # ===== 标签页1：拍照识别 =====
     with tab1:
@@ -638,7 +889,7 @@ with right:
         
         pic = st.file_uploader("选择图片", type=["jpg", "png", "jpeg"], help="支持jpg、png、jpeg格式")
         
-        if pic:
+        if pic and selected_pet_id:
             st.image(pic, width=300, caption="预览")
             
             with st.spinner("🔍 百度AI正在识别中..."):
@@ -694,7 +945,7 @@ with right:
                 
                 if st.button("💾 保存记录", use_container_width=True):
                     record = {
-                        'pet_name': pet_name,
+                        'pet_id': selected_pet_id,
                         'food_name': food_info['食物名称'],
                         'amount': amount,
                         'calories': cal,
@@ -711,6 +962,8 @@ with right:
                         }
                         st.session_state.history.append(display_record)
                         st.success("✅ 记录已保存！")
+        elif pic and not selected_pet_id:
+            st.warning("请先在左边选择或添加宠物")
         
         st.markdown("</div>", unsafe_allow_html=True)
     
@@ -720,63 +973,68 @@ with right:
         <div style='background-color: white; border-radius: 15px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
         """, unsafe_allow_html=True)
         
-        food_list = food_db['食物名称'].tolist()
-        chosen = st.selectbox("🥘 选择食物", food_list)
-        
-        food_info = food_db[food_db['食物名称'] == chosen].iloc[0]
-        
-        # 显示营养信息
-        st.markdown(f"""
-        <div style='background-color: #F8F9FA; border-radius: 10px; padding: 1rem; margin: 1rem 0;'>
-            <p><strong>📊 营养信息（每100g）</strong></p>
-            <p>🔥 热量：{food_info['热量_kcal_100g']} kcal</p>
-            <p>🥩 蛋白质：{food_info['蛋白质_g_100g']} g</p>
-            <p>🫧 脂肪：{food_info['脂肪_g_100g']} g</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            amount = st.slider("🥄 份量(克)", 10, 300, 50)
-        with col2:
-            meal_time = st.selectbox("🍽️ 哪一餐？", ["早餐", "午餐", "晚餐", "加餐"], key="manual_meal")
-        
-        cal = round(amount * food_info['热量_kcal_100g'] / 100)
-        pro = round(amount * food_info['蛋白质_g_100g'] / 100, 1)
-        
-        col1, col2 = st.columns(2)
-        col1.metric("🔥 热量", f"{cal} kcal")
-        col2.metric("🥩 蛋白质", f"{pro} g")
-        
-        if st.button("💾 保存记录", key="save_manual", use_container_width=True):
-            record = {
-                'pet_name': pet_name,
-                'food_name': chosen,
-                'amount': amount,
-                'calories': cal,
-                'protein': pro,
-                'meal_time': meal_time
-            }
+        if not selected_pet_id:
+            st.warning("请先在左边选择或添加宠物")
+        else:
+            food_list = food_db['食物名称'].tolist()
+            chosen = st.selectbox("🥘 选择食物", food_list)
             
-            if save_record_to_db(record):
-                display_record = {
-                    '时间': datetime.datetime.now().strftime("%H:%M"),
-                    '食物': chosen,
-                    '热量': cal,
-                    '蛋白质': pro
+            food_info = food_db[food_db['食物名称'] == chosen].iloc[0]
+            
+            # 显示营养信息
+            st.markdown(f"""
+            <div style='background-color: #F8F9FA; border-radius: 10px; padding: 1rem; margin: 1rem 0;'>
+                <p><strong>📊 营养信息（每100g）</strong></p>
+                <p>🔥 热量：{food_info['热量_kcal_100g']} kcal</p>
+                <p>🥩 蛋白质：{food_info['蛋白质_g_100g']} g</p>
+                <p>🫧 脂肪：{food_info['脂肪_g_100g']} g</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                amount = st.slider("🥄 份量(克)", 10, 300, 50)
+            with col2:
+                meal_time = st.selectbox("🍽️ 哪一餐？", ["早餐", "午餐", "晚餐", "加餐"], key="manual_meal")
+            
+            cal = round(amount * food_info['热量_kcal_100g'] / 100)
+            pro = round(amount * food_info['蛋白质_g_100g'] / 100, 1)
+            
+            col1, col2 = st.columns(2)
+            col1.metric("🔥 热量", f"{cal} kcal")
+            col2.metric("🥩 蛋白质", f"{pro} g")
+            
+            if st.button("💾 保存记录", key="save_manual", use_container_width=True):
+                record = {
+                    'pet_id': selected_pet_id,
+                    'food_name': chosen,
+                    'amount': amount,
+                    'calories': cal,
+                    'protein': pro,
+                    'meal_time': meal_time
                 }
-                st.session_state.history.append(display_record)
-                st.success("✅ 记录已保存！")
+                
+                if save_record_to_db(record):
+                    display_record = {
+                        '时间': datetime.datetime.now().strftime("%H:%M"),
+                        '食物': chosen,
+                        '热量': cal,
+                        '蛋白质': pro
+                    }
+                    st.session_state.history.append(display_record)
+                    st.success("✅ 记录已保存！")
         
         st.markdown("</div>", unsafe_allow_html=True)
     
-       # ===== 标签页3：营养分析 =====
+    # ===== 标签页3：今日分析 =====
     with tab3:
         st.markdown("""
         <div style='background-color: white; border-radius: 15px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
         """, unsafe_allow_html=True)
         
-        if len(st.session_state.history) == 0:
+        if not selected_pet_id:
+            st.warning("请先在左边选择或添加宠物")
+        elif len(st.session_state.history) == 0:
             st.info("📭 今天还没有记录，快去添加吧！")
         else:
             total_cal = sum([x['热量'] for x in st.session_state.history])
@@ -850,3 +1108,120 @@ with right:
                 st.rerun()
         
         st.markdown("</div>", unsafe_allow_html=True)
+    
+    # ===== 标签页4：历史趋势 =====
+    with tab4:
+        st.markdown("""
+        <div style='background-color: white; border-radius: 15px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+        """, unsafe_allow_html=True)
+        
+        if not selected_pet_id:
+            st.warning("请先在左边选择或添加宠物")
+        else:
+            # 时间范围选择
+            time_range = st.radio(
+                "选择时间范围",
+                ["近7天", "近30天", "近90天"],
+                horizontal=True,
+                key="time_range"
+            )
+            
+            days = 7
+            if time_range == "近30天":
+                days = 30
+            elif time_range == "近90天":
+                days = 90
+            
+            # 加载历史数据
+            history_data = load_history_records(selected_pet_id, days)
+            
+            if len(history_data) == 0:
+                st.info("📊 暂无历史数据")
+            else:
+                # 转换成DataFrame
+                df = pd.DataFrame(history_data)
+                
+                # 热量趋势图
+                st.markdown("#### 🔥 每日热量摄入趋势")
+                fig_cal = px.line(
+                    df, 
+                    x='日期', 
+                    y='总热量',
+                    markers=True,
+                    title=f'过去{len(df)}天热量摄入',
+                    labels={'总热量': '热量 (kcal)', '日期': '日期'}
+                )
+                fig_cal.add_hline(
+                    y=daily_cal, 
+                    line_dash="dash", 
+                    line_color="red",
+                    annotation_text="每日目标"
+                )
+                st.plotly_chart(fig_cal, use_container_width=True)
+                
+                # 双轴图：热量和蛋白质
+                st.markdown("#### 📊 热量与蛋白质对比")
+                fig2 = go.Figure()
+                fig2.add_trace(go.Bar(
+                    x=df['日期'],
+                    y=df['总热量'],
+                    name='热量 (kcal)',
+                    marker_color='#4ECDC4'
+                ))
+                fig2.add_trace(go.Scatter(
+                    x=df['日期'],
+                    y=df['总蛋白质'],
+                    name='蛋白质 (g)',
+                    yaxis='y2',
+                    line=dict(color='#FF6B6B', width=3),
+                    mode='lines+markers'
+                ))
+                fig2.update_layout(
+                    title='每日热量与蛋白质摄入',
+                    xaxis=dict(title='日期'),
+                    yaxis=dict(title='热量 (kcal)', color='#4ECDC4'),
+                    yaxis2=dict(
+                        title='蛋白质 (g)',
+                        color='#FF6B6B',
+                        overlaying='y',
+                        side='right'
+                    ),
+                    legend=dict(x=0, y=1.1)
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+                
+                # 统计摘要
+                st.markdown("#### 📋 统计摘要")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    avg_cal = df['总热量'].mean()
+                    st.metric("平均每日热量", f"{avg_cal:.0f} kcal")
+                with col2:
+                    avg_pro = df['总蛋白质'].mean()
+                    st.metric("平均每日蛋白质", f"{avg_pro:.1f} g")
+                with col3:
+                    total_meals = df['餐数'].sum()
+                    st.metric("总记录餐数", f"{total_meals} 餐")
+                
+                # 达标率
+               达标天数 = len(df[df['总热量'] >= daily_cal * 0.9])
+               达标率 = (达标天数 / len(df)) * 100
+               
+                st.markdown(f"""
+                <div style='background-color: #F0F8FF; border-radius: 10px; padding: 1rem; margin-top: 1rem;'>
+                    <p><strong>🎯 达标率</strong>：{达标率:.1f}% ({达标天数}/{len(df)}天 达到目标90%以上)</p>
+                    <div style='background-color: #E0E0E0; border-radius: 5px; height: 10px; width: 100%;'>
+                        <div style='background-color: #4ECDC4; border-radius: 5px; height: 10px; width: {达标率}%;'></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# 底部版权
+st.markdown("---")
+st.markdown("""
+<div style='text-align: center; color: #6C757D; font-size: 0.9rem; padding: 1rem;'>
+    🐾 宠物AI营养师 · 让毛孩子吃得健康 · 版本 3.0（多宠物+图表+饮食计划）
+</div>
+""", unsafe_allow_html=True)
