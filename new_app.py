@@ -169,7 +169,7 @@ API_KEY = st.secrets.get("API_KEY", 's0Ci5vaSBEYA1VT4Ez9jH5j6')
 SECRET_KEY = st.secrets.get("SECRET_KEY", '9yqsGkNOXopZpsDNPKmauO7kaNn5p1nc')
 
 # 初始化百度AI客户端
-client = AipImageClassify(APP_ID, API_KEY, SECRET_KEY)
+client_bd = AipImageClassify(APP_ID, API_KEY, SECRET_KEY)
 
 # 页面设置
 st.set_page_config(
