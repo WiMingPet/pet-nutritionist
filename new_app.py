@@ -16,103 +16,61 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 自定义CSS样式
-st.markdown("""
-<style>
-    /* 全局字体设置 */
-    .stApp {
-        background-color: #f9f9f9;
-    }
-    
-    /* 标题样式 */
-    h1 {
-        color: #FF6B6B;
-        font-size: 3rem;
-        font-weight: 700;
-        text-align: center;
-        margin-bottom: 0.5rem;
-    }
-    
-    /* 副标题样式 */
-    h2 {
-        color: #4ECDC4;
-        font-size: 2rem;
-        font-weight: 600;
-    }
-    
-    h3 {
-        color: #45B7D1;
-        font-size: 1.5rem;
-        font-weight: 500;
-    }
-    
-    /* 卡片样式 */
-    .stApp [data-testid="stVerticalBlock"] {
-        background-color: transparent;
-    }
-    
-    /* 按钮样式 */
-    .stButton button {
-        background-color: #4ECDC4;
-        color: white;
-        border-radius: 20px;
-        border: none;
-        padding: 0.5rem 2rem;
-        font-size: 1rem;
-        font-weight: 600;
-        transition: all 0.3s ease;
-    }
-    
-    .stButton button:hover {
-        background-color: #45B7D1;
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-    }
-    
-    /* 输入框样式 */
-    .stTextInput input, .stNumberInput input {
-        border-radius: 10px;
-        border: 2px solid #E0E0E0;
-        padding: 0.5rem;
-    }
-    
-    .stTextInput input:focus, .stNumberInput input:focus {
-        border-color: #4ECDC4;
-        box-shadow: 0 0 0 2px rgba(78,205,196,0.2);
-    }
-    
-    /* 标签页样式 */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2rem;
-        background-color: white;
-        padding: 0.5rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 20px;
-        padding: 0.5rem 1.5rem;
-        font-weight: 500;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background-color: #4ECDC4;
-        color: white;
-    }
-    
-    /* 进度条样式 */
-    .stProgress > div > div {
-        background-color: #4ECDC4;
-        border-radius: 10px;
-    }
-    
-    /* 成功消息样式 */
-    .stAlert {
-        border-radius: 10px;
-    }
-</style>
-""", unsafe_allow_html=True)
+# ========== 新手引导 ==========
+if 'first_visit' not in st.session_state:
+    st.session_state.first_visit = True
+
+if st.session_state.first_visit:
+    with st.expander("🎉 欢迎使用宠物AI营养师！第一次使用？点击查看引导", expanded=True):
+        st.markdown("""
+        <div style='background-color: #F0F8FF; border-radius: 10px; padding: 1rem;'>
+            <h4>📱 三步上手：</h4>
+            <p>1️⃣ 在左边添加宠物信息</p>
+            <p>2️⃣ 点击「拍照识别」上传食物照片</p>
+            <p>3️⃣ 查看「今日分析」了解营养摄入</p>
+            <p>💡 还可以查看历史趋势，了解宠物的饮食规律</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("知道了，不再显示"):
+            st.session_state.first_visit = False
+            st.rerun()
+
+# ========== 主题切换 ==========
+col1, col2 = st.columns([6,1])
+with col2:
+    if st.button("🌙" if 'theme' not in st.session_state or st.session_state.theme == 'light' else "☀️"):
+        if 'theme' not in st.session_state:
+            st.session_state.theme = 'dark'
+        else:
+            st.session_state.theme = 'light' if st.session_state.theme == 'dark' else 'dark'
+        st.rerun()
+
+# 根据主题应用不同样式
+if 'theme' in st.session_state and st.session_state.theme == 'dark':
+    st.markdown("""
+    <style>
+        .stApp { background-color: #1E1E1E; color: #FFFFFF; }
+        .stMarkdown, .stText, .stTitle, .stHeader { color: #FFFFFF !important; }
+        .st-bb, .st-at, .st-ae { background-color: #2D2D2D !important; }
+        .stButton button { background-color: #4ECDC4 !important; color: #FFFFFF !important; }
+        .stTextInput input { background-color: #2D2D2D !important; color: #FFFFFF !important; border-color: #4ECDC4 !important; }
+        .stSelectbox div { background-color: #2D2D2D !important; color: #FFFFFF !important; }
+        .stNumberInput input { background-color: #2D2D2D !important; color: #FFFFFF !important; }
+        .stSlider div { background-color: #2D2D2D !important; }
+        .stAlert { background-color: #2D2D2D !important; color: #FFFFFF !important; }
+        .st-b7 { background-color: #2D2D2D !important; }
+        .st-c0 { background-color: #2D2D2D !important; }
+        .st-bb { border-color: #4ECDC4 !important; }
+    </style>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+    <style>
+        .stApp { background-color: #f9f9f9; }
+        .stMarkdown { color: #000000; }
+        .stButton button { background-color: #4ECDC4; color: white; }
+    </style>
+    """, unsafe_allow_html=True)
 
 # 页面顶部装饰
 st.markdown("""
@@ -1206,7 +1164,7 @@ with right:
                 # 达标率
                 达标天数 = len(df[df['总热量'] >= daily_cal * 0.9])
                 达标率 = (达标天数 / len(df)) * 100
-                
+               
                 st.markdown(f"""
                 <div style='background-color: #F0F8FF; border-radius: 10px; padding: 1rem; margin-top: 1rem;'>
                     <p><strong>🎯 达标率</strong>：{达标率:.1f}% ({达标天数}/{len(df)}天 达到目标90%以上)</p>
@@ -1215,6 +1173,8 @@ with right:
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
 
 # 底部版权
 st.markdown("---")
